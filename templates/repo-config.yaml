@@ -1,0 +1,72 @@
+# Per-repo review overrides for hermes-review-bot.
+#
+# TRUST NOTE: the bot reads this file from the PR's BASE branch, never the PR
+# head — a contributor cannot loosen the rules reviewing their own PR. Config
+# changes take effect once merged to the base branch.
+#
+# Every key below is optional; unset keys inherit the machine-global config
+# (templates/config.example.yaml) or the built-in default shown.
+
+# Set to false to disable the bot entirely for this repo.
+enabled: true
+
+# Engine/model overrides for this repo only (null = inherit global).
+engine: null
+model: null
+
+# Output style override: comment | request_changes (null = inherit global).
+output_style: null
+
+# 1 = report all severities (P0-P3), 2 = P0-P2 (default), 3 = P0/P1 only.
+strictness: 2
+
+# Which finding types may be posted: logic, syntax, style, info.
+commentTypes: [logic, syntax, style, info]
+
+# Findings with confidence below this are dropped (0.0 - 1.0).
+# P0/P1 and security-related findings are never dropped by this gate.
+confidenceThreshold: 0.6
+
+# Glob patterns for changed files to exclude from review.
+ignorePatterns: []
+
+# Skip PRs that touch more than this many reviewable files (null = no limit).
+fileChangeLimit: null
+
+# Author filters (lowercase logins). excludeAuthors wins over includeAuthors.
+includeAuthors: []
+excludeAuthors:
+  - dependabot[bot]
+  - github-actions[bot]
+
+# Branch filters (globs). excludeBranches wins over includeBranches.
+includeBranches: []
+excludeBranches: []
+
+# Title/body keyword filters (lowercase, substring match).
+includeKeywords: []
+ignoreKeywords:
+  - "[skip-review]"
+  - "[no-review]"
+
+# Label filters (lowercase). disabledLabels wins over labels.
+labels: []
+disabledLabels:
+  - skip-review
+
+# Re-review automatically when new commits are pushed (synchronize).
+triggerOnUpdates: true
+
+# When true, never post inline line comments — summary comment only.
+updateSummaryOnly: false
+
+# Custom review criteria, evaluated against the changed files. Also see
+# .hermes-review/rules.md for free-form prose rules.
+customRules: []
+#  - id: no-force-unwraps
+#    rule: "Force unwraps/force try/force casts must be eliminated in changed code."
+#    scope: ["*.swift"]          # optional glob list; default: all files
+#    severity: medium            # low | medium | high  (suggested severity only)
+
+# ids of built-in/example rules to disable.
+disabledRules: []

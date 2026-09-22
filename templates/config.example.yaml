@@ -1,0 +1,59 @@
+# hermes-review-bot global configuration (copy to ~/.hermes/review-bot/config.yaml;
+# setup.sh does this for you). Machine-global defaults — a target repo can override
+# most review knobs via its own `.hermes-review.yml` (read from the PR BASE branch).
+
+# Which review engine runs the analysis. One of:
+#   agy | claude | codex | opencode | gemini | hermes
+engine: agy
+
+# Model for that engine (engine's default when null). setup.sh verifies the value
+# against the engine's model listing when the engine provides one.
+model: gemini-3.8-flash-high
+
+# Repos this bot serves (one install covers all of them).
+repos:
+  - OWNER/EXAMPLE_REPO
+
+# GitHub token: put HERMES_PR_REVIEW_GITHUB_TOKEN in ~/.hermes/.env
+# (fine-grained PAT — recommended permissions in README).
+
+# Which GitHub events/actions trigger a review.
+events:
+  - pull_request
+  - issue_comment
+actions:
+  - opened
+  - reopened
+  - ready_for_review
+  - synchronize
+
+skip_drafts: true
+
+# Output style for posted reviews: comment | request_changes
+output_style: comment
+
+# Allow `/hermes review` and `/hermes review full` comment commands.
+followup_commands: true
+
+# Per-review engine wall-clock limit.
+timeout_minutes: 30
+
+# Commit status context posted on the head SHA.
+status_context: Hermes Review Bot
+
+poll:
+  # Polling mode (default trigger): a Hermes cron job runs `review.py --poll`
+  # on this schedule. No public URL required.
+  enabled: true
+  interval: 5m          # hermes cron schedule syntax: '5m', 'every 15m', '0 * * * *'
+  max_prs: 3            # max PRs processed per repo per tick
+
+webhook:
+  # Webhook mode (advanced): instant delivery, requires a public URL
+  # (Cloudflare named tunnel or ngrok) pointed at the Hermes gateway.
+  # setup.sh generates `secret` and writes the gateway route; the gateway
+  # REJECTS payloads whose X-Hub-Signature-256 doesn't match it.
+  enabled: false
+  url: ""               # e.g. https://webhook.example.com/webhooks/hermes-review-bot
+  secret: ""            # managed by setup.sh — do not commit or share
+  route_name: hermes-review-bot
