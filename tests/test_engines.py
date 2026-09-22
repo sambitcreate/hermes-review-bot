@@ -49,9 +49,22 @@ def test_opencode_argv(make_review, monkeypatch):
     which_all(monkeypatch)
     m = make_review()
     argv = m.build_engine_command("opencode", "P", "/tmp/wt", "anthropic/claude", 30)
-    assert argv[:2] == ["/mock/bin/opencode", "run"]
+    assert argv[:4] == ["/mock/bin/opencode", "run", "--format", "json"]
     assert argv[argv.index("-m") + 1] == "anthropic/claude"
     assert argv[-1] == "P"
+
+
+def test_opencode_events_flatten(make_review):
+    m = make_review()
+    ndjson = "\n".join([
+        '{"type":"step_start"}',
+        '{"type":"text","part":{"text":"### Summary\\n\\nfine"}}',
+        '{"type":"step_finish","part":{"id":"x"}}',
+        "",
+    ])
+    assert m.opencode_events_to_text(ndjson) == "### Summary\n\nfine"
+    # non-JSON passthrough (so validation reports the real failure)
+    assert m.opencode_events_to_text("plain prose output") == "plain prose output"
 
 
 def test_gemini_argv(make_review, monkeypatch):

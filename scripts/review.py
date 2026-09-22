@@ -1573,6 +1573,34 @@ REQUIRED_REVIEW_HEADINGS = (
 )
 
 
+def opencode_events_to_text(raw: str) -> str:
+    """Flatten opencode `run --format json` NDJSON events into plain text.
+
+    Each line is one JSON event; assistant text arrives as type="text" events
+    with the payload in part.text. Non-JSON output is returned unchanged so the
+    normal cleaning/validation path reports the real problem.
+    """
+    texts: list[str] = []
+    saw_json = False
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        saw_json = True
+        part = ev.get("part")
+        if isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"].strip():
+            texts.append(part["text"])
+    if not saw_json:
+        return raw
+    return "\n\n".join(texts)
+
+
 def clean_review_output(output: str) -> str:
     """Normalize headless engine output into one GitHub comment body.
 
@@ -1725,7 +1753,10 @@ def build_engine_command(engine: str, prompt: str, worktree: Path, model: str, t
             argv += ["--model", model]
         argv += [prompt]
     elif engine == "opencode":
-        argv = [binary, "run"]
+        # MUST be --format json: the default formatted renderer never exits when
+        # stdout is a pipe (verified: hangs indefinitely; json format exits ~2.5s).
+        # run_engine_review flattens the NDJSON events back into review text.
+        argv = [binary, "run", "--format", "json"]
         if model:
             argv += ["-m", model]
         argv += [prompt]
@@ -1757,7 +1788,10 @@ def run_engine_review(prompt: str, worktree: Path) -> str:
         timeout=GCFG.timeout_minutes * 60 + 120,
         check=False,
     )
-    combined = clean_review_output(proc.stdout or "")
+    raw_stdout = proc.stdout or ""
+    if engine == "opencode":
+        raw_stdout = opencode_events_to_text(raw_stdout)
+    combined = clean_review_output(raw_stdout)
     log_event(
         "engine_completed",
         engine=engine,
