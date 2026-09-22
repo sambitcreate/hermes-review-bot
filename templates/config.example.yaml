@@ -10,6 +10,11 @@ engine: agy
 # against the engine's model listing when the engine provides one.
 model: gemini-3.8-flash-high
 
+# Optional custom reviewer prompt. Empty = bundled prompts/review-default.md.
+# An absolute path overrides the bundled default for every repo (per-repo
+# prompts can be swapped via prompt files in each target repo later).
+prompt_file: ""
+
 # Repos this bot serves (one install covers all of them).
 repos:
   - OWNER/EXAMPLE_REPO
@@ -40,6 +45,11 @@ timeout_minutes: 30
 
 # Commit status context posted on the head SHA.
 status_context: Hermes Review Bot
+
+# Absolute path to this hermes-review-bot clone — written by setup.sh so the
+# webhook handler and cron launcher can find scripts/review.py. Re-run
+# setup.sh if you move or rename the clone.
+install_path: ""
 
 poll:
   # Polling mode (default trigger): a Hermes cron job runs `review.py --poll`

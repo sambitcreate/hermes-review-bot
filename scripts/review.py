@@ -530,7 +530,10 @@ def parse_findings_json(review: str) -> list[dict[str, Any]] | None:
     raw = extract_findings_block(review)
     if raw is None:
         return None
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        raise RuntimeError(f"review findings block is not valid JSON: {e}") from e
     if not isinstance(data, list):
         raise RuntimeError("review findings block is not a JSON array")
     findings: list[dict[str, Any]] = []
@@ -1472,7 +1475,7 @@ def build_runtime_prompt(custom: str, pr: dict[str, Any], files: list[dict[str, 
     - Do not produce the final review solely from PR metadata, filenames, or diff statistics.
     - Run only short, read-only inspection commands. Do not build, test, edit, commit, or push.
 
-        GROUNDING — search the repository before you conclude:
+    GROUNDING — search the repository before you conclude:
     - Before claiming a changed symbol is unused, a caller or behavior is missing, or a pattern is inconsistent, search the repository for callers, sibling implementations, and similar existing code.
     - Treat similar existing code as prior art for pattern-consistency (error handling, parameterization, threading/async, logging, security/auth patterns); flag deviations and prefer recommending the established pattern with a concrete reference.
     - Verify any cited file/line exists before referencing it.
@@ -1571,9 +1574,9 @@ REQUIRED_REVIEW_HEADINGS = (
 
 
 def clean_review_output(output: str) -> str:
-    """Normalize AGY print-mode output into one GitHub comment body.
+    """Normalize headless engine output into one GitHub comment body.
 
-    AGY print mode can emit tool-plan narration and more than one model
+    Print-mode engines can emit tool-plan narration and more than one model
     content block to stdout. Keep the last review-like block, strip chatty
     preambles/process narration, and return only the fixed-format review body.
     """
@@ -1589,7 +1592,7 @@ def clean_review_output(output: str) -> str:
     text = REVIEW_PREAMBLE_RE.sub("", text, count=1).strip()
     text = re.sub(r"^\s*---\s*\n+", "", text, count=1).strip()
 
-    # An engine sometimes prints its planned tool calls before the actual final review before the actual final
+    # An engine sometimes prints its planned tool calls before the actual final
     # review, e.g. "I will run git diff...". The contract says the model's
     # useful output starts at one of our fixed headings, so drop anything that
     # leaks before the first required section heading.
@@ -1700,8 +1703,10 @@ def build_engine_command(engine: str, prompt: str, worktree: Path, model: str, t
     testable for engines that are not installed on this machine.
     """
     _name = {"agy": "agy", "claude": "claude", "codex": "codex",
-             "opencode": "opencode", "gemini": "gemini", "hermes": "hermes"}[engine]
-    binary = shutil.which(_name) or str(HOME / ".local" / "bin" / _name)
+             "opencode": "opencode", "gemini": "gemini", "hermes": "hermes"}
+    if engine not in _name:
+        raise RuntimeError(f"Unsupported engine {engine!r}; pick one of: {', '.join(sorted(_name))}")
+    binary = shutil.which(_name[engine]) or str(HOME / ".local" / "bin" / _name[engine])
     if engine == "agy":
         argv = [binary, "--print-timeout", f"{timeout_minutes}m0s", "--sandbox", "--add-dir", str(worktree)]
         if model:
@@ -2200,7 +2205,7 @@ def build_followup_runtime_prompt(
     - Do not produce the final review solely from PR metadata, filenames, or diff statistics.
     - Run only short, read-only inspection commands. Do not build, test, edit, commit, or push.
 
-        GROUNDING — search the repository before you conclude:
+    GROUNDING — search the repository before you conclude:
     - Before claiming a changed symbol is unused, a caller or behavior is missing, or a pattern is inconsistent, search the repository for callers, sibling implementations, and similar existing code.
     - Treat similar existing code as prior art for pattern-consistency (error handling, parameterization, threading/async, logging, security/auth patterns); flag deviations and prefer recommending the established pattern with a concrete reference.
     - Verify any cited file/line exists before referencing it.

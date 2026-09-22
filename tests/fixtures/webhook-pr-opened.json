@@ -1,0 +1,15 @@
+{
+  "action": "opened",
+  "number": 7,
+  "pull_request": {
+    "number": 7,
+    "state": "open",
+    "draft": false,
+    "title": "Add backoff to the retry helper",
+    "html_url": "https://github.com/Foo/Bar/pull/7",
+    "head": {"sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ref": "feature"},
+    "base": {"sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "ref": "main"}
+  },
+  "repository": {"full_name": "Foo/Bar"},
+  "sender": {"login": "octocat"}
+}
