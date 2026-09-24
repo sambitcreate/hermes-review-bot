@@ -1429,6 +1429,62 @@ def ensure_checkout(token: str, pr_number: int, base_branch: str, head_sha: str)
         tmp.cleanup()
 
 
+def compute_blast_radius(worktree: Path, base_branch: str, max_symbols: int = 15) -> str:
+    """Analyze changed/deleted symbols and map their references across the codebase."""
+    try:
+        diff_res = run(["git", "diff", "--find-renames", "-U0", f"origin/{base_branch}...HEAD"], cwd=worktree, timeout=60, check=False)
+        if diff_res.returncode != 0 or not diff_res.stdout:
+            return ""
+
+        diff_text = diff_res.stdout
+        changed_symbols: set[str] = set()
+        deleted_symbols: set[str] = set()
+
+        sym_pattern = re.compile(
+            r"^[+-]\s*(?:export\s+)?(?:async\s+)?(?:def|func|function|class|struct|interface|type|fn)\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            re.MULTILINE
+        )
+        for match in sym_pattern.finditer(diff_text):
+            line = match.group(0)
+            sym = match.group(1)
+            if len(sym) >= 3 and sym not in ("test", "main", "init", "self", "error", "string", "int", "bool"):
+                if line.startswith("-"):
+                    deleted_symbols.add(sym)
+                else:
+                    changed_symbols.add(sym)
+
+        names_res = run(["git", "diff", "--name-only", f"origin/{base_branch}...HEAD"], cwd=worktree, timeout=30, check=False)
+        changed_files_set = set(names_res.stdout.splitlines()) if names_res.stdout else set()
+
+        sections = []
+        stale_refs = []
+        for sym in sorted(deleted_symbols - changed_symbols)[:max_symbols]:
+            grep_res = run(["git", "grep", "-n", "-w", sym], cwd=worktree, timeout=15, check=False)
+            if grep_res.returncode == 0 and grep_res.stdout:
+                matches = [m for m in grep_res.stdout.splitlines() if not any(m.startswith(cf + ":") for cf in changed_files_set)]
+                if matches:
+                    stale_refs.append(f"- `{sym}` was removed/renamed in this PR, but still has {len(matches)} reference(s) elsewhere:\n" +
+                                      "\n".join(f"  * `{m[:120]}`" for m in matches[:3]))
+        if stale_refs:
+            sections.append("POTENTIAL STALE / BROKEN REFERENCES (Symbols removed in PR but still referenced):\n" + "\n".join(stale_refs))
+
+        external_refs = []
+        for sym in sorted(changed_symbols)[:max_symbols]:
+            grep_res = run(["git", "grep", "-n", "-w", sym], cwd=worktree, timeout=15, check=False)
+            if grep_res.returncode == 0 and grep_res.stdout:
+                matches = [m for m in grep_res.stdout.splitlines() if not any(m.startswith(cf + ":") for cf in changed_files_set)]
+                if matches:
+                    external_refs.append(f"- `{sym}`: {len(matches)} external reference(s) found:\n" +
+                                         "\n".join(f"  * `{m[:120]}`" for m in matches[:3]))
+        if external_refs:
+            sections.append("CODEBASE BLAST RADIUS (Call sites & references outside the PR diff):\n" + "\n".join(external_refs))
+
+        return "\n\n".join(sections)
+    except Exception as e:
+        log(f"blast_radius extraction failed (non-fatal): {e}")
+        return ""
+
+
 def build_runtime_prompt(custom: str, pr: dict[str, Any], files: list[dict[str, Any]], linked_issues: list[dict[str, Any]], worktree: Path, review_mode: str | None = None, depth_guidance: str | None = None, config: "RepoConfig | None" = None) -> str:
     pr_number = pr["number"]
     base_branch = pr["base"]["ref"]
@@ -1436,6 +1492,23 @@ def build_runtime_prompt(custom: str, pr: dict[str, Any], files: list[dict[str, 
     base_sha = pr.get("base", {}).get("sha")
     stat = run(["git", "diff", "--stat", f"origin/{base_branch}...HEAD"], cwd=worktree, timeout=120, check=False).stdout.strip()
     names = run(["git", "diff", "--name-only", f"origin/{base_branch}...HEAD"], cwd=worktree, timeout=120, check=False).stdout.strip()
+    
+    # Save full diff to worktree and create a bounded preview for the prompt
+    diff_res = run(["git", "diff", "--find-renames", f"origin/{base_branch}...HEAD"], cwd=worktree, timeout=120, check=False)
+    raw_diff = diff_res.stdout or ""
+    try:
+        (worktree / "pr.diff").write_text(raw_diff, encoding="utf-8")
+    except Exception:
+        pass
+    diff_lines = raw_diff.splitlines()
+    if len(diff_lines) <= 350:
+        embedded_diff = "\n".join(diff_lines)
+    else:
+        embedded_diff = "\n".join(diff_lines[:350]) + f"\n\n... [Truncated {len(diff_lines) - 350} lines; read complete diff at pr.diff or via git diff]"
+
+    blast_radius = compute_blast_radius(worktree, base_branch)
+    blast_radius_block = f"\n{blast_radius}\n" if blast_radius else ""
+
     file_summary = "\n".join(
         f"- {f.get('filename')} ({f.get('status')}, +{f.get('additions')}/-{f.get('deletions')})"
         for f in files
@@ -1525,6 +1598,11 @@ def build_runtime_prompt(custom: str, pr: dict[str, Any], files: list[dict[str, 
     LOCAL CHANGED FILES (`git diff --name-only origin/{base_branch}...HEAD`):
     ```
     {names or '(empty)'}
+    ```
+    {blast_radius_block}
+    PR DIFF PREVIEW (Complete diff also written to `pr.diff` in worktree):
+    ```diff
+    {embedded_diff}
     ```
 
     The repo is checked out at: {worktree}
