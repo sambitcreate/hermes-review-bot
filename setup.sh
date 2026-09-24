@@ -339,10 +339,16 @@ open(path, "w", encoding="utf-8").write(text)
 PYEOF
   fi
   if [ -n "$MODEL" ]; then set_cfg_line model "$MODEL"; fi
-  if grep -q "OWNER/EXAMPLE_REPO" "$CFG" 2>/dev/null; then
-    bad "no repos configured — re-run with --repos owner/repo[,owner/repo]"
+  if [ -n "$INTERVAL" ]; then
+    python3 - "$CFG" "$INTERVAL" <<'PYEOF'
+import re, sys
+path, interval = sys.argv[1], sys.argv[2]
+text = open(path, encoding="utf-8").read()
+text = re.sub(r"(?m)^(\s*interval):.*$", rf'\1: {interval}', text, count=1)
+open(path, "w", encoding="utf-8").write(text)
+PYEOF
   fi
-  if [ -n "$REPOS" ] && { [ "$FORCE" = "1" ] || ! grep -q "OWNER/EXAMPLE_REPO" "$CFG"; }; then
+  if [ -n "$REPOS" ]; then
     python3 - "$CFG" "$REPOS" <<'PYEOF'
 import re, sys
 path, repos = sys.argv[1], [r.strip() for r in sys.argv[2].split(",") if r.strip()]
@@ -352,6 +358,9 @@ text = re.sub(r"(?m)^repos:\n(  - .*\n)+", f"repos:\n{lines}\n", text, count=1)
 open(path, "w", encoding="utf-8").write(text)
 PYEOF
     say "repos -> $REPOS"
+  fi
+  if grep -q "OWNER/EXAMPLE_REPO" "$CFG" 2>/dev/null; then
+    bad "no repos configured — re-run with --repos owner/repo[,owner/repo]"
   fi
 }
 
@@ -366,12 +375,16 @@ install_launchers() {
 setup_polling() {
   local interval="${INTERVAL:-$(read_cfg_field 'd.get("poll", {}).get("interval")')}"
   interval="${interval:-5m}"
+  local sched="$interval"
+  if [[ "$sched" =~ ^[0-9]+[smhd]$ ]]; then
+    sched="every $sched"
+  fi
   if hermes cron list 2>/dev/null | grep -q "hermes-review-bot"; then
     say "polling cron already installed (schedule $interval) — edit with: hermes cron edit"
   else
-    hermes cron create "$interval" --name hermes-review-bot \
-      --script "$SCRIPTS_DIR/hermes-review-bot-poll.py" --no-agent
-    say "polling cron installed: every $interval → scripts/review.py --poll (silent when healthy)"
+    hermes cron create "$sched" --name hermes-review-bot \
+      --script "hermes-review-bot-poll.py" --no-agent
+    say "polling cron installed: $sched → scripts/review.py --poll (silent when healthy)"
   fi
 }
 
@@ -385,7 +398,7 @@ setup_webhook() {
   url="$(read_cfg_field 'd.get("webhook", {}).get("url")')"
   hermes webhook subscribe hermes-review-bot \
     --events pull_request,issue_comment \
-    --script "$SCRIPTS_DIR/hermes-review-bot-handler.py" \
+    --script "hermes-review-bot-handler.py" \
     --secret "$secret" >/dev/null
   python3 - "$CFG" "$secret" <<'PYEOF'
 import re, sys
