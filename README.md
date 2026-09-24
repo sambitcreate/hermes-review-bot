@@ -52,8 +52,11 @@ cd hermes-review-bot
 # 1. token — create a fine-grained PAT at https://github.com/settings/personal-access-tokens/new
 #    Repositories: only the repos you want reviewed
 #    Permissions:  Contents: read · Pull requests: read/write · Issues: read/write · Statuses: write · Metadata: read
-#    then add it to ~/.hermes/.env (never commit it):
-echo 'HERMES_PR_REVIEW_GITHUB_TOKEN=ghp_...' >> ~/.hermes/.env
+#    Expiration:   90 days (short expiry = a leaked token dies on its own)
+#    then add it to ~/.hermes/.env (never commit it). Idempotent — safe to re-run:
+umask 077
+grep -q '^HERMES_PR_REVIEW_GITHUB_TOKEN=' ~/.hermes/.env || \
+  echo 'HERMES_PR_REVIEW_GITHUB_TOKEN=github_pat_...' >> ~/.hermes/.env
 
 # 2. install (interactive; answers the 4 questions, or pre-seed with flags)
 ./setup.sh --engine agy --repos you/your-repo
@@ -74,6 +77,35 @@ trigger it.
 **Doctor first, install second:** `./setup.sh --check` works before any config
 exists and never writes anything — use it to validate token/engine/Hermes before
 answering a single prompt.
+
+### Token storage: why a 0600 file, and how to stay safe
+
+The bot reads the token from the environment (`HERMES_PR_REVIEW_GITHUB_TOKEN` →
+`GITHUB_TOKEN` → `GH_TOKEN`) and falls back to `~/.hermes/.env`. On a headless
+box running unattended cron, a mode-600 file outside the repo is the correct
+storage floor: OS keyrings (libsecret/Secret Service, `gh --secure-storage`)
+need an unlocked desktop session that cron doesn't have, and encrypted-at-rest
+schemes need a passphrase prompt or a keyfile — which is plaintext-equivalent.
+Don't burn effort on storage theater; spend it on blast radius:
+
+- **Minimum scope, minimum repos, short expiry.** A fine-grained PAT limited to
+  the reviewed repos with the five permissions above and a 90-day expiry beats a
+  full-scope token in any vault.
+- **One token per bot, never your personal one.** Don't point the bot at your
+  `gh` CLI token (classic PATs carry `workflow`/`read:org`). If the bot leaks,
+  it leaks a read-mostly token, not your identity.
+- **The file lives in `~/.hermes/`, outside this repo** — it cannot be committed
+  regardless of `.gitignore`.
+- **Rotate by replacing, not appending** (the dotenv loader keeps the *first*
+  occurrence, so stale duplicates silently do nothing):
+  `sed -i 's/^HERMES_PR_REVIEW_GITHUB_TOKEN=.*/HERMES_PR_REVIEW_GITHUB_TOKEN=new/' ~/.hermes/.env`
+- **Verify without exposing:** `./setup.sh --check` (never prints the token).
+
+If you later run this on a desktop with a keyring, you can upgrade:
+`secret-tool store --label=hermes-review-bot service hermes-review-bot username github-token`
+(then paste the token, Ctrl-D), and export
+`HERMES_PR_REVIEW_GITHUB_TOKEN=$(secret-tool lookup service hermes-review-bot username github-token)`
+in the poll launcher.
 
 ## Trigger modes
 
@@ -228,9 +260,11 @@ symlinked — the gateway rejects symlinks for route scripts).
 - **Repo content is untrusted input:** the prompt tells the model that diffs,
   docs, config, and context files can attempt prompt injection and must be
   treated as review criteria only, never as instructions.
-- **Credential hygiene:** one scoped PAT in `~/.hermes/.env`; this repo never
-  prints or commits secrets; webhook Administration rights stay separate (gh
-  CLI or manual), so the review token cannot be widened by accident.
+- **Credential hygiene:** one scoped PAT in `~/.hermes/.env` (mode 600, outside
+  the repo, minimal fine-grained scope, short expiry — see "Token storage"
+  above); this repo never prints or commits secrets; webhook Administration
+  rights stay separate (gh CLI or manual), so the review token cannot be widened
+  by accident.
 
 ## What was verified at build time
 

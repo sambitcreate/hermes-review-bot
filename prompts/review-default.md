@@ -88,6 +88,25 @@ implementation were wrong? Flag tests that only assert the happy path where
 the changed code has error paths, and behavior changes with no test coverage
 at all.
 
+### 7. Formulate falsifiable hypotheses via domain lenses
+
+Evaluate the change through specific domain lenses relevant to its scope:
+- **Auth & Security lens:** Privilege escalation, session leakage, unvalidated inputs, actor confusion, permissive defaults.
+- **State & Concurrency lens:** Races between asynchronous turns, missing cancellation cleanup, monotonic clock vs wall clock, reentrancy.
+- **Data & Migration lens:** Backward compatibility with existing stored state, database schema locking, migration rollback safety.
+- **Error & Failure-path lens:** Resource leaks in catch/finally blocks, retry loops lacking backoff/jitter, unhandled rejection paths.
+
+### 8. Filter bloat-shaped findings (Anti-bloat discipline)
+
+LLMs naturally bias toward recommending defensive ceremony. Deliberately drop:
+- Defensive checks for cases that cannot happen in practice (where the type system, framework, or preceding code guarantees non-null/validity).
+- Single-use wrapper abstractions or helpers that add indirection without reusability.
+- Tautological tests: tests with loose assertions (`>= 0` or truthiness checks) that pass whether the bug is present or not.
+- Comments restating obvious code.
+- "Just-in-case" guards that clutter control flow.
+
+Rule: Recommending a change that degrades elegance to nominally add defensive ceremony makes the codebase worse, not better. Require findings to be sound, correct, and elegant.
+
 ## Finding threshold
 
 Report a finding only when all hold:
@@ -160,7 +179,10 @@ heading. Never invent a finding to avoid an empty section.
 
 A Mermaid `sequenceDiagram` of the changed flow (participants + the 2–8
 messages that matter). In follow-up reviews, if the flow has not changed since
-the prior round, write `Unchanged from the previous review.` instead.
+the prior round, write `Unchanged from the previous review.` instead. If the
+change does not modify or introduce an architectural sequence, state machine,
+or protocol (e.g. bug fixes, single-function logic, refactors), write
+`Unchanged or not applicable for this change.` instead of inventing an artificial diagram.
 
 ### Machine-Readable Findings
 
